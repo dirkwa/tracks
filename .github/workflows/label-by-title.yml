@@ -77,8 +77,12 @@ jobs:
           case " $current " in *" dependencies "*) has_deps=1 ;; *) has_deps=0 ;; esac
           if [ "$type" = build ] && [ "$scope" = deps ]; then
             if [ "$has_deps" = 0 ]; then args+=(--add-label dependencies); fi
-          elif [ "$has_deps" = 1 ] && [ "$author" != app/dependabot ]; then
-            args+=(--remove-label dependencies)
+          elif [ "$has_deps" = 1 ]; then
+            # gh reports a bot as app/<name>; the REST form is <name>[bot].
+            case "$author" in
+              app/dependabot | 'dependabot[bot]') ;;
+              *) args+=(--remove-label dependencies) ;;
+            esac
           fi
           if [ "${#args[@]}" = 0 ]; then
             echo "#$NUMBER '$TITLE': nothing to change (${wanted:-no managed label})"
