@@ -89,10 +89,27 @@ function firstString(value: unknown): string | undefined {
   return typeof scalar === 'string' && scalar.trim() !== '' ? scalar : undefined
 }
 
+/**
+ * The most buckets one long read is held to, from a history provider or from
+ * the store.
+ *
+ * A month of one-minute buckets keeps a Pi-class server responsive. The store
+ * shares it with history reads so a long stored track is never read coarser
+ * than the history it is reconciled with.
+ */
+export const READ_BUCKET_BUDGET = 30 * 24 * 60
+
 export interface TrackQuery {
   window?: TimeWindow
   /** Minimum spacing between returned points, in milliseconds. */
   resolution?: number
+  /**
+   * The most points the caller keeps of each track. A track recorded with more
+   * than `READ_BUCKET_BUDGET` positions, or more than this, is then read one
+   * position per bucket of time instead of whole: reading years of fixes only
+   * to thin them away is what makes a long history slow.
+   */
+  maxPoints?: number
   /**
    * Serve the recording time of every point alongside the geometry.
    *

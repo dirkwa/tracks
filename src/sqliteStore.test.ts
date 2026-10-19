@@ -5,10 +5,15 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { s2 } from 's2js'
 import { SqliteTrackStore, TransactionStateError } from './sqliteStore.js'
+import { pauseBetween, READ_BUCKET_BUDGET, segment } from './timeWindow.js'
 import { clipToBounds, splitAtAntimeridian } from './utils.js'
 import type { Context, GeoBounds, ImportedTrack, LatLngTuple, TimedPosition, TimeWindow } from './types.js'
 
 const debug = Object.assign(() => {}, { enabled: false })
+// The per-context read is private; spied on to see which contexts are read whole.
+const readsOf = (store: SqliteTrackStore) =>
+  vi.spyOn(store as unknown as { budgetedRowsFor: (context: Context) => unknown }, 'budgetedRowsFor')
+
 const ctx = 'vessels.urn:mrn:signalk:uuid:test' as Context
 const other = 'vessels.urn:mrn:signalk:uuid:other' as Context
 
@@ -101,7 +106,7 @@ describe('requested contexts', () => {
 
   it('returns every requested context and reads no other', async () => {
     const store = seeded()
-    const getTimed = vi.spyOn(store, 'getTimed')
+    const getTimed = readsOf(store)
 
     const tracks = await store.getFilteredTimedTracks({ bbox: null, radius: null, contexts: [ctx, third] })
     expect(Object.keys(tracks).sort()).toEqual([ctx, third].sort())
@@ -111,7 +116,7 @@ describe('requested contexts', () => {
 
   it('reads only the requested contexts the box lets through', async () => {
     const store = seeded()
-    const getTimed = vi.spyOn(store, 'getTimed')
+    const getTimed = readsOf(store)
     const bounds: GeoBounds = { sw: [60, 24], ne: [61, 26] }
 
     const tracks = await store.getFilteredTimedTracks({
@@ -167,7 +172,7 @@ describe('clip reads', () => {
 
   it('reads only the stretches inside the box and the point either side of each', async () => {
     const { store, all } = seeded()
-    const getTimed = vi.spyOn(store, 'getTimed')
+    const getTimed = readsOf(store)
 
     const tracks = await store.getFilteredTimedTracks({ bbox: box, radius: null, intersects: true, clip: true })
     expect(Object.keys(tracks)).toEqual([ctx])
@@ -192,6 +197,58 @@ describe('clip reads', () => {
       Array.from({ length: 30 }, (_, i) => enter + i * MINUTE),
     )
     store.close()
+  })
+})
+
+describe('reads sampled to a budget', () => {
+  const SECOND = 1000
+  const PAUSE = 2 * 60 * 60 * SECOND
+  const box: GeoBounds = { sw: [60, 24], ne: [61, 25] }
+  // More fixes than one read is held to, every ten seconds, with one long
+  // stop half way.
+  const FIXES = 100_000
+  const times = Array.from({ length: FIXES }, (_, i) => i * 10 * SECOND + (i >= FIXES / 2 ? PAUSE : 0))
+  const positions = times.map((_, i): LatLngTuple => [60.1 + i * 1e-6, 24.5])
+
+  const seeded = (): SqliteTrackStore => {
+    const store = newStore()
+    store.initialTrack(ctx, positions, times)
+    return store
+  }
+
+  it.each([
+    ['whole', { bbox: null, radius: null }],
+    ['clipped', { bbox: box, radius: null, intersects: true, clip: true }],
+  ] as const)('reads a %s track one row per bucket, splitting only at the stop', async (_, params) => {
+    const store = seeded()
+    try {
+      const tracks = await store.getFilteredTimedTracks(params, undefined, undefined, { maxPoints: 5000 })
+      const points = tracks[ctx]!
+      expect(points.length).toBeLessThanOrEqual(READ_BUCKET_BUDGET + 2)
+      expect(points.length).toBeLessThan(FIXES / 2)
+      expect(points[0]!.timestamp).toBe(times[0])
+      expect(points.at(-1)!.timestamp).toBe(times.at(-1))
+      expect(segment(points, 5 * 60 * SECOND)).toHaveLength(2)
+      // Whichever row a bucket kept, the stop is measured as recorded.
+      const resumed = points.findIndex(({ timestamp }) => timestamp >= times[FIXES / 2]!)
+      expect(pauseBetween(points[resumed - 1]!, points[resumed]!)).toBe(PAUSE + 10 * SECOND)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('reads a track that fits the budget whole', async () => {
+    const store = newStore()
+    try {
+      store.initialTrack(ctx, positions.slice(0, 100), times.slice(0, 100))
+      const whole = await store.getFilteredTimedTracks({ bbox: null, radius: null })
+      const budgeted = await store.getFilteredTimedTracks({ bbox: null, radius: null }, undefined, undefined, {
+        maxPoints: 10,
+      })
+      expect(budgeted).toEqual(whole)
+    } finally {
+      store.close()
+    }
   })
 })
 

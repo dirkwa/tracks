@@ -29,7 +29,7 @@ import { DEFAULT_PAUSE_STATES, PAUSABLE_STATES, StateGate } from './stateGate.js
 import { fromGpx, toGpx } from './gpx.js'
 import { fromGpxTrack, isImportedId } from './importedTracks.js'
 import { readText, UploadTooLargeError, UploadTypeError } from './upload.js'
-import { parseTrackQuery, segment, thin, TimeWindowError } from './timeWindow.js'
+import { parseTrackQuery, READ_BUCKET_BUDGET, segment, thin, TimeWindowError } from './timeWindow.js'
 import type { TrackQuery } from './timeWindow.js'
 import type {
   BinEntry,
@@ -295,10 +295,9 @@ const EXISTENCE_PROBE_FROM_MS = 0
  * resolution, not with what is drawn. Providers fabricate a row for every
  * bucket in the range — questdb fills empty ones with nulls — and refuse a
  * range past their own cap, which one-minute buckets over two years already
- * exceed. A month of one-minute buckets keeps a Pi-class server responsive;
- * a longer window is read at a wider resolution instead.
+ * exceed, so a longer window is read at a wider resolution instead.
  */
-const HISTORY_BUCKET_BUDGET = 30 * 24 * 60
+const HISTORY_BUCKET_BUDGET = READ_BUCKET_BUDGET
 
 /**
  * How many buckets the read that finds where a provider's data begins asks

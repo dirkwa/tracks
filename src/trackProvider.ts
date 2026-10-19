@@ -238,6 +238,9 @@ export function createTrackProvider(deps: TrackProviderDeps): TrackProvider {
         // thinning cannot drop the point inside it, and a clipped one keeps
         // the points that carry it to the box edge.
         ...(resolution === undefined || bounds ? {} : { resolution }),
+        // Not for a box that does not clip: sampling could drop the only
+        // point inside it before the match sees the track.
+        ...(query.maxPoints === undefined || (bounds && !clipTo) ? {} : { maxPoints: query.maxPoints }),
       },
     )
 
