@@ -165,6 +165,11 @@ otherwise start at the Unix epoch. Instead the plugin first finds where the
 provider's positions begin and reads from there, within the same budget; when
 the provider has none in the window, it contributes nothing.
 
+A v2 query for one vessel with no window at all is read the same way, from
+where the provider's positions begin to now. The plugin is often installed
+long after the provider started recording, so the store's oldest position says
+nothing about where the vessel's record begins.
+
 ## Why the two never double up
 
 A provider aggregates into buckets and stamps each one on its boundary:

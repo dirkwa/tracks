@@ -848,6 +848,44 @@ describe('positions only a history provider holds', () => {
     }
   })
 
+  describe('with no window', () => {
+    const DAY = 24 * 60 * MINUTE
+    const daysAgo = (days: number, [lat, lng]: [number, number]) => [
+      new Date(Date.now() - days * DAY).toISOString(),
+      [lng, lat],
+    ]
+    const history = {
+      contexts: [SELF_CONTEXT],
+      aggregatesFirst: true,
+      rows: [daysAgo(300, [10, 20]), daysAgo(200, [11, 21])],
+    }
+
+    it('reaches history older than anything stored', async () => {
+      const h = createHarness({ history })
+      try {
+        h.seedTrack(SELF_CONTEXT, [[12, 22]], [Date.now() - DAY])
+        const res = await providerOf(h).getTracks({ contexts: [SELF_CONTEXT] })
+        expect(res.features[0]!.geometry!.coordinates.flat()).toEqual([
+          [20, 10],
+          [21, 11],
+          [22, 12],
+        ])
+      } finally {
+        await h.stop()
+      }
+    })
+
+    it('returns a vessel only history holds', async () => {
+      const h = createHarness({ history })
+      try {
+        const res = await providerOf(h).getTracks({ contexts: [SELF_CONTEXT] })
+        expect(res.features.map((f) => f.properties.pointCount)).toEqual([2])
+      } finally {
+        await h.stop()
+      }
+    })
+  })
+
   it('leaves out a stored vessel whose box crossing history replaced', async () => {
     const h = createHarness({ history: { contexts: [SELF_CONTEXT], rows: rows([10, 20]) } })
     try {

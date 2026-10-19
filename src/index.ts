@@ -261,8 +261,8 @@ const SOURCE_STATUS_INTERVAL_MS = 30000
 const HISTORY_QUERY_TIMEOUT_MS = 5000
 
 /**
- * How far back a query with no window of its own reaches when the store is
- * empty.
+ * How far back a v1 query with no window of its own reaches when the store is
+ * empty. A windowless v2 query asks for one vessel's whole record instead.
  *
  * There is nothing else to derive a span from, and asking a provider for all
  * of time would be expensive on a large one. A day covers the usual reason for
@@ -1071,11 +1071,11 @@ export default function ThePlugin(app: App): Plugin {
         },
         reconcileWithHistory: async (context, stored, window, resolutionMs) => {
           const effective = resolutionMs ?? storeResolution
-          // A query with no window still gets history, for the same reason
-          // the v1 route does: a context recorded only by the provider —
-          // before this plugin was installed — would otherwise never be asked
-          // about.
-          const asked = window ?? windowSpanning(stored, WINDOWLESS_HISTORY_SPAN_MS)
+          // A v2 query with no window asks for one vessel's whole record, and
+          // the provider's usually reaches back further than the store's: the
+          // plugin may have been installed long after the provider. So it is
+          // read from where the provider's positions begin.
+          const asked = window ?? { from: Number.NEGATIVE_INFINITY, to: Date.now(), inclusiveEnd: true }
           const history = await visibleHistory(context, asked, effective)
           // `failed` is deliberately not escalated here: the v2 contract has
           // no per-context error and no 404, so a provider outage degrades to
